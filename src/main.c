@@ -65,19 +65,48 @@ int main() {
       return 1;
     }
   }
-  else if (strcmp((token = strtok(token, "/")),"echo") == 0){
+  else if (strncmp(token,"/echo/", 6) == 0){
     char *str = strtok(NULL, "/");
     char buf[] = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: ";
+
+    // Content-Length
     int body_len = strlen(str);
     char str_len[body_len];
     snprintf(str_len, body_len, "%d\r\n\r\n", body_len);
-
     strcat(buf, str_len);
+
+    // Response
     strcat(buf, str);
+
     int len = strlen(buf);
 
     if (send(client_fd, buf, len, 0) == -1){
       printf("Send Failed: %s\n", strerror(errno));
+      return 1;
+    }
+  }
+  else if (strcmp(token, "/user-agent") == 0){
+    //TODO Review code
+    char *ua = strtok(NULL, "\r\n");
+    ua = strtok(NULL, "\r\n");
+    ua = strtok(NULL, "\r\n");
+    char *str = strtok(ua, " ");
+    str = strtok(NULL, " ");
+
+    char res[] = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: ";
+
+
+    int body_len = strlen(str);
+    char str_len[body_len];
+    snprintf(str_len, body_len, "%d\r\n\r\n", body_len);
+
+    strcat(res, str_len);
+    strcat(res, str);
+    printf("%s\n", res);
+
+    int len = strlen(res);
+    if (send(client_fd, res, len, 0) == -1){
+      printf("Send failed: %s\n", strerror(errno));
       return 1;
     }
   }
