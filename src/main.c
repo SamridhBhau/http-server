@@ -65,6 +65,22 @@ int main() {
       return 1;
     }
   }
+  else if (strcmp((token = strtok(token, "/")),"echo") == 0){
+    char *str = strtok(NULL, "/");
+    char buf[] = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: ";
+    int body_len = strlen(str);
+    char str_len[body_len];
+    snprintf(str_len, body_len, "%d\r\n\r\n", body_len);
+
+    strcat(buf, str_len);
+    strcat(buf, str);
+    int len = strlen(buf);
+
+    if (send(client_fd, buf, len, 0) == -1){
+      printf("Send Failed: %s\n", strerror(errno));
+      return 1;
+    }
+  }
   else {
     char *buf = "HTTP/1.1 404 Not Found\r\n\r\n";
     int len = strlen(buf);
@@ -74,6 +90,7 @@ int main() {
       return 1;
     }
   }
+
   
   close(server_fd);
 
