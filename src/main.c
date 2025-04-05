@@ -149,7 +149,6 @@ void *handle_request_thread(void *c){
   return 0;
 }
 
-
 void parse_request_data(char *buf, struct request_data* req){
   // TODO: Parse Headers
   char *data = strdup(buf);
@@ -174,8 +173,8 @@ void parse_request_data(char *buf, struct request_data* req){
   size_t header_len;
   while ( (header_len = strcspn(data, "\r\n")) != 0){
     // Parse User-Agent
-    if (strncmp(data, "User-Agent", 10) == 0){
-      req->agent_header = calloc(sizeof(char), header_len - 12 + 1);
+    if (strncmp(data, "user-agent", 10) == 0 || strncmp(data, "User-Agent", 10) == 0){
+      req->agent_header = (char *)calloc(sizeof(char), header_len - 12 + 1);
       char *val = data + 12;
       memcpy(req->agent_header, val, &data[header_len] - val);
     }
@@ -184,10 +183,12 @@ void parse_request_data(char *buf, struct request_data* req){
 
   data += 2;  // skip CRLF
   req->body = strdup(data);
+  free(data);
 }
 
 
 
+// TODO: Refactor
 void *handle_file_request(void *c, struct request_data* req){
   struct client_info *c_info = (struct client_info *)c;
   long long int client_fd = c_info->client_fd;
