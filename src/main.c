@@ -1,3 +1,4 @@
+#include <ctype.h>
 #include <stdio.h>
 #include <netdb.h>
 #include <assert.h>
@@ -19,15 +20,23 @@ struct client_info {
   long long int client_fd;
   char **args;      
   int arg_len;
-  char *filename;   // requested file
-  char *request;
+};
+
+struct header {
+  char *name;
+  char *value;
+};
+
+struct header_data {
+  int length;
+  struct header** headers;
 };
 
 struct request_data {
   char *request_type; // GET/POST
   char *request_path; 
-  char *agent_header;
   char *body;
+  struct header_data* header_data;
 };
 
 void *handle_file_request(void *, struct request_data*);
@@ -112,21 +121,50 @@ void *handle_request_thread(void *c){
   }
   else if (strncmp(req_data->request_path,"/echo/", 6) == 0){
     char *str = req_data->request_path + 6;
+    size_t headers_len = req_data->header_data->length;
+    struct header **headers = req_data->header_data->headers;
 
-    // Content-Length
-    char res[MAX_LENGTH];
-    sprintf(res, "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: %ld\r\n\r\n%s",strlen(str), str);
+    char *client_encoding;
+    for (int i = 0; i < headers_len; i++){
+      if (strcmp(headers[i]->name, "Accept-Encoding") == 0){
+        client_encoding = headers[i]->value;
+      }
+    }
+    char res[MAX_LENGTH] = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n";
 
+    if (client_encoding == NULL){
+      char s[MAX_LENGTH];
+      sprintf(s, "Content-Length: %ld\r\n\r\n%s", strlen(str), str);
+      strcat(res, s);
+    }
+    else if (strcmp(client_encoding, "gzip") == 0){
+      strcat(res, "Content-Encoding: gzip\r\n\r\n");
+    }
+    else{
+      strcat(res, "\r\n");
+    }
+    
     if (send(client_fd, res, strlen(res) + 1, 0) == -1){
-      printf("Send Failed: %s\n", strerror(errno));
+      printf("Send failed: %s\n", strerror(errno));
       return NULL;
     }
   }
   else if (strncmp(req_data->request_path, "/user-agent", 11) == 0){
-
     char res[MAX_LENGTH];
+    size_t headers_len = req_data->header_data->length;
+    struct header **headers = req_data->header_data->headers;
+
+    char *agent_header;
+    int i;
+    for (i = 0; i < headers_len; i++){
+      if (strcmp(headers[i]->name, "user-agent") == 0 || strcmp(headers[i]->name, "User-Agent") == 0)
+      {
+        agent_header = headers[i]->value;
+      }
+    }
+
     sprintf(res,"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: %ld\r\n\r\n%s",
-            strlen(req_data->agent_header), req_data->agent_header);
+            strlen(agent_header), agent_header);
 
     if (send(client_fd, res, strlen(res) + 1, 0) == -1){
       printf("Send failed: %s\n", strerror(errno));
@@ -135,7 +173,6 @@ void *handle_request_thread(void *c){
   }
   else if (strncmp(req_data->request_path, "/files/", 7) == 0){
     char *filename = req_data->request_path + 7;
-    c_info->filename = filename;
     handle_file_request(c_info, req_data);
   }
   else{
@@ -170,20 +207,38 @@ void parse_request_data(char *buf, struct request_data* req){
   data += ver_len + 2;
 
   // Skip Headers
-  size_t header_len;
-  while ( (header_len = strcspn(data, "\r\n")) != 0){
-    // Parse User-Agent
-    if (strncmp(data, "user-agent", 10) == 0 || strncmp(data, "User-Agent", 10) == 0){
-      req->agent_header = (char *)calloc(sizeof(char), header_len - 12 + 1);
-      char *val = data + 12;
-      memcpy(req->agent_header, val, &data[header_len] - val);
+  size_t header_len = 0;
+  struct header** headers = malloc(0);
+  while (data[0] != '\r' || data[1] != '\n'){
+    header_len++;
+    void *new_headers = realloc(headers, sizeof(struct header *) * header_len);
+    headers = (struct header **)new_headers;
+
+    size_t name_len = strcspn(data, ":");
+    char *name = calloc(sizeof(char), name_len+1);
+    memcpy(name, data, &data[name_len] - data);
+    name[name_len] = '\0';
+    data += name_len + 1;
+
+    while(isspace(*data)){
+      data++; 
     }
-    data += header_len + 2;
+    size_t val_len = strcspn(data, "\r\n");
+    char *value = calloc(sizeof(char), val_len+1);
+    memcpy(value, data, &data[val_len] - data);
+    value[val_len] = '\0';
+    data += val_len + 2;
+
+    headers[header_len - 1] = malloc(sizeof(struct header *));
+    headers[header_len - 1]->name = name;
+    headers[header_len - 1]->value = value;
   }
 
-  data += 2;  // skip CRLF
-  req->body = strdup(data);
-  free(data);
+  struct header_data* header_data = malloc(sizeof(struct header_data));
+  header_data->length = header_len;
+  header_data->headers = headers;
+  req->header_data = header_data;
+  req->body = strdup(data) + 2;
 }
 
 
@@ -192,7 +247,7 @@ void parse_request_data(char *buf, struct request_data* req){
 void *handle_file_request(void *c, struct request_data* req){
   struct client_info *c_info = (struct client_info *)c;
   long long int client_fd = c_info->client_fd;
-  char *filename = c_info->filename;
+  char *filename = req->request_path + 7;
   char **args = c_info->args;
   int arg_len = c_info->arg_len;
   char *dir;
