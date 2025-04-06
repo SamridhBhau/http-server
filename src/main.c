@@ -11,15 +11,11 @@
 
 #define MAX_LENGTH 4096
 
-void *handle_request_thread(void *);
-void *handle_not_found(void *);
-char *read_file(char *);
+static char* directory;
 
 // TODO: Clean useless code
 struct client_info {
   long long int client_fd;
-  char **args;      
-  int arg_len;
 };
 
 struct header {
@@ -42,8 +38,17 @@ struct request_data {
 void *handle_file_request(void *, struct request_data*);
 void *write_file(char *, char *);
 void parse_request_data(char *buf, struct request_data*);
+void *handle_request_thread(void *);
+void *handle_not_found(void *);
+char *read_file(char *);
 
 int main(int argc, char *argv[]) {
+  for (int i = 0; i < argc; i++){
+    if (strcmp(argv[i], "--directory") == 0 && argc > i + 1){
+      directory = argv[i + 1];
+    }
+  }
+
   int server_fd;
 
   server_fd = socket(AF_INET, SOCK_STREAM, 0);
@@ -82,8 +87,6 @@ int main(int argc, char *argv[]) {
 
     struct client_info *c_info = (struct client_info*)malloc(sizeof(*c_info));
     c_info->client_fd = client_fd;
-    c_info->args = argv;
-    c_info->arg_len = argc;
 
     pthread_t thread;
     pthread_create(&thread, NULL, handle_request_thread, c_info);
@@ -162,7 +165,6 @@ void *handle_request_thread(void *c){
         agent_header = headers[i]->value;
       }
     }
-
     sprintf(res,"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: %ld\r\n\r\n%s",
             strlen(agent_header), agent_header);
 
@@ -187,7 +189,6 @@ void *handle_request_thread(void *c){
 }
 
 void parse_request_data(char *buf, struct request_data* req){
-  // TODO: Parse Headers
   char *data = strdup(buf);
   size_t str_len = strlen(data);
 
@@ -248,21 +249,10 @@ void *handle_file_request(void *c, struct request_data* req){
   struct client_info *c_info = (struct client_info *)c;
   long long int client_fd = c_info->client_fd;
   char *filename = req->request_path + 7;
-  char **args = c_info->args;
-  int arg_len = c_info->arg_len;
-  char *dir;
 
-  // HACK: implement proper error handling
-  if (arg_len > 1 && strcmp(args[1], "--directory") == 0){
-    dir = args[2];
-  }
-  if (dir == NULL)
-    return NULL;
-
-  int len = strlen(dir) + strlen(filename) + 2;
+  int len = strlen(directory) + strlen(filename) + 2;
   char path[len];
-  snprintf(path, len,"%s/%s", dir, filename);
-
+  snprintf(path, len,"%s/%s", directory, filename);
 
   if (strcmp(req->request_type, "GET") == 0){
     char *s = read_file(path);
