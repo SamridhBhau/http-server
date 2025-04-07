@@ -8,8 +8,11 @@
 #include <string.h>
 #include <unistd.h>
 #include <pthread.h>
+#include <zlib.h>
 
 #define MAX_LENGTH 4096
+// size of memory used by zlib functions
+#define CHUNK 16384
 
 static char* directory;
 
@@ -41,6 +44,9 @@ void parse_request_data(char *buf, struct request_data*);
 void *handle_request_thread(void *);
 void *handle_not_found(void *);
 char *read_file(char *);
+char **split_string(char *, char *,int *);
+void send_message(long long int, char *);
+unsigned char *compress_zlib(char *, int*);
 
 int main(int argc, char *argv[]) {
   for (int i = 0; i < argc; i++){
@@ -127,30 +133,46 @@ void *handle_request_thread(void *c){
     size_t headers_len = req_data->header_data->length;
     struct header **headers = req_data->header_data->headers;
 
-    char *client_encoding;
+    char *client_encodings;
     for (int i = 0; i < headers_len; i++){
       if (strcmp(headers[i]->name, "Accept-Encoding") == 0){
-        client_encoding = headers[i]->value;
+        client_encodings = headers[i]->value;
       }
     }
+
     char res[MAX_LENGTH] = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n";
 
-    if (client_encoding == NULL){
+    if (client_encodings == NULL){
       char s[MAX_LENGTH];
       sprintf(s, "Content-Length: %ld\r\n\r\n%s", strlen(str), str);
       strcat(res, s);
+      send_message(client_fd, res);
+      return 0;
     }
-    else if (strcmp(client_encoding, "gzip") == 0){
-      strcat(res, "Content-Encoding: gzip\r\n\r\n");
+
+    int len;
+    unsigned char* c_str = compress_zlib(str, &len);
+
+    int clients_len;
+    char **client_vals = split_string(client_encodings, ",", &clients_len);
+
+    char *encoding;
+    for (int i = 0; i < clients_len; i++){
+      encoding = client_vals[i];
+
+      if (strcmp(encoding, "gzip") == 0){
+        char s[MAX_LENGTH];
+        sprintf(s, "Content-Encoding: gzip\r\nContent-Length: %d\r\n\r\n", len);
+        strcat(res, s);
+        send_message(client_fd, res);
+        send(client_fd, c_str, len, 0);
+        return 0;
+      }
     }
-    else{
-      strcat(res, "\r\n");
-    }
-    
-    if (send(client_fd, res, strlen(res) + 1, 0) == -1){
-      printf("Send failed: %s\n", strerror(errno));
-      return NULL;
-    }
+    strcat(res, "\r\n");
+
+    send_message(client_fd, res);
+    return 0;
   }
   else if (strncmp(req_data->request_path, "/user-agent", 11) == 0){
     char res[MAX_LENGTH];
@@ -345,4 +367,62 @@ void *write_file(char *path, char *msg){
   pthread_mutex_unlock(&lock);
 
   return 0;
+}
+
+char **split_string(char *string, char* delim,int *clients_len){
+  char *data = strdup(string);
+  char **vals = malloc(0);
+  int client_len = 0;
+
+  while (data[0] != '\0'){
+    client_len++;
+    vals = (char **)realloc(vals, sizeof(char *)*client_len);
+
+    size_t val_len = strcspn(data, delim);
+    char *val = calloc(sizeof(char), val_len+1);
+    memcpy(val, data, &data[val_len] - data);
+    val[val_len] = '\0';
+    data += val_len + 1;
+
+    while(isspace(*data)){
+      data++;
+    }
+
+    vals[client_len - 1] = val;
+  }
+  *clients_len = client_len;
+  return vals;
+}
+
+void send_message(long long int client_fd, char *msg){
+  if (send(client_fd, msg, strlen(msg), 0) == -1){
+    printf("Send Failed: %s\n", strerror(errno));
+  }
+}
+
+unsigned char *compress_zlib(char *msg, int* len){
+  z_stream zstrm;
+  int have;
+  int ret;
+  unsigned char *out = malloc(CHUNK);
+  memset(out, 0, CHUNK);
+
+  zstrm.zalloc = Z_NULL;
+  zstrm.zfree = Z_NULL;
+  zstrm.opaque = Z_NULL;
+  ret = deflateInit2(&zstrm, Z_DEFAULT_COMPRESSION, Z_DEFLATED, 0x1F, 8, Z_DEFAULT_STRATEGY);
+
+  zstrm.next_in = (unsigned char *) msg;
+  zstrm.avail_in = strlen(msg);
+
+  do {
+    zstrm.avail_out = CHUNK;
+    zstrm.next_out = out;
+    deflate(&zstrm, Z_FINISH);
+    have = CHUNK - zstrm.avail_out;
+    *len = have;
+  }while(zstrm.avail_out == 0);
+  deflateEnd(&zstrm);
+
+  return out;
 }
