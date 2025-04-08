@@ -16,7 +16,6 @@
 
 static char* directory;
 
-// TODO: Clean useless code
 struct client_info {
   long long int client_fd;
 };
@@ -81,6 +80,11 @@ int main(int argc, char *argv[]) {
     return 1;
   }
 
+  pthread_t thread;
+  pthread_attr_t thread_attr;
+  pthread_attr_init(&thread_attr);
+  pthread_attr_setdetachstate(&thread_attr, PTHREAD_CREATE_DETACHED);
+
   while(1){
     struct sockaddr_storage client_addr;
     socklen_t addr_size = sizeof client_addr;
@@ -94,11 +98,10 @@ int main(int argc, char *argv[]) {
     struct client_info *c_info = (struct client_info*)malloc(sizeof(*c_info));
     c_info->client_fd = client_fd;
 
-    pthread_t thread;
-    pthread_create(&thread, NULL, handle_request_thread, c_info);
-    pthread_detach(thread);
+    pthread_create(&thread, &thread_attr, handle_request_thread, c_info);
   }
 
+  pthread_attr_destroy(&thread_attr);
   close(server_fd);
   return 0;
 }
@@ -190,7 +193,7 @@ void *handle_request_thread(void *c){
     sprintf(res,"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: %ld\r\n\r\n%s",
             strlen(agent_header), agent_header);
 
-    if (send(client_fd, res, strlen(res) + 1, 0) == -1){
+    if (send(client_fd, res, strlen(res)+1, 0) == -1){
       printf("Send failed: %s\n", strerror(errno));
       return NULL;
     }
@@ -266,7 +269,6 @@ void parse_request_data(char *buf, struct request_data* req){
 
 
 
-// TODO: Refactor
 void *handle_file_request(void *c, struct request_data* req){
   struct client_info *c_info = (struct client_info *)c;
   long long int client_fd = c_info->client_fd;
@@ -325,9 +327,8 @@ void *handle_not_found(void *c){
 char *read_file(char *path){
   char *s = (char *)malloc(MAX_LENGTH);
 
-  // TODO: Add error handling
   pthread_mutex_t lock;
-  int rc = pthread_mutex_init(&lock, NULL);
+  pthread_mutex_init(&lock, NULL);
 
   FILE *fptr = fopen(path, "r");
 
