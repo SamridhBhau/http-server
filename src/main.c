@@ -9,7 +9,7 @@
 #include <unistd.h>
 #include <pthread.h>
 #include <zlib.h>
-#include "../include/thread_pool/thread_pool.h"
+#include "thread_pool.h"
 
 #define MAX_LENGTH 4096
 // size of memory used by zlib functions
