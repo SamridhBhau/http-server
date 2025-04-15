@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.13)
-project( http-server )
+project(http-server)
 set(CMAKE_C_STANDARD 23)
 
 include_directories(include)
