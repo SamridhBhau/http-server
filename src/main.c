@@ -9,6 +9,7 @@
 #include <unistd.h>
 #include <pthread.h>
 #include <zlib.h>
+#include "../include/thread_pool/thread_pool.h"
 
 #define MAX_LENGTH 4096
 // size of memory used by zlib functions
@@ -86,9 +87,9 @@ int main(int argc, char *argv[]) {
   }
 
   pthread_t thread;
-  pthread_attr_t thread_attr;
-  pthread_attr_init(&thread_attr);
-  pthread_attr_setdetachstate(&thread_attr, PTHREAD_CREATE_DETACHED);
+
+  struct threadpool tpool;
+  threadpool_init(&tpool, 10);
 
   while(1){
     struct sockaddr_storage client_addr;
@@ -104,10 +105,11 @@ int main(int argc, char *argv[]) {
     c_info->client_fd = client_fd;
     c_info->close_connection = 0;
 
-    pthread_create(&thread, &thread_attr, handle_request_thread, c_info);
+    add_work(&tpool, (void (*)(void *))handle_request_thread, c_info);
   }
 
-  pthread_attr_destroy(&thread_attr);
+  threadpool_wait(&tpool);
+  threadpool_destroy(&tpool);
   close(server_fd);
   return 0;
 }
